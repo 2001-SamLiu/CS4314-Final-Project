@@ -1,4 +1,4 @@
-from __future__ import absolute_import, division, print_function
+from __future__ import division, print_function
 import argparse
 import logging
 import os
@@ -17,12 +17,76 @@ import torch.nn as nn
 import torch.nn.functional as F
 install_path = os.path.abspath(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(install_path)
-from utils.evaluator import Evaluator
 
+from utils.initialization import *
+from utils.example import Example
+from xpinyin import Pinyin
+from utils.evaluator import Evaluator
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
                     datefmt="%m/%d/%Y %H:%M:%S",
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
+Example.configuration('../data', train_path='../data/train.json', word2vec_path='../word2vec-768.txt')
+def anti_noise_prediction(predictions):
+    p = Pinyin()
+    select_pos_set = {'poi名称', 'poi修饰', 'poi目标', '起点名称', '起点修饰', '起点目标', '终点名称', '终点修饰', '终点目标', '途经点名称'}
+    select_others_set = {'请求类型': [Example.label_vocab.request_map_dic, Example.label_vocab.request_pinyin_set], \
+        '出行方式' : [Example.label_vocab.travel_map_dic, Example.label_vocab.travel_pinyin_set], \
+        '路线偏好' : [Example.label_vocab.route_map_dic, Example.label_vocab.route_pinyin_set], \
+        '对象' :  [Example.label_vocab.object_map_dic, Example.label_vocab.object_pinyin_set], \
+        '页码' : [Example.label_vocab.page_map_dic, Example.label_vocab.page_pinyin_set], \
+        '操作' : [Example.label_vocab.opera_map_dic, Example.label_vocab.opera_pinyin_set], \
+        '序列号' : [Example.label_vocab.ordinal_map_dic, Example.label_vocab.ordinal_pinyin_set]   }
+
+    modify_num = 0
+    for i, pred in enumerate(predictions):
+        pred_length = len(pred)
+        if pred_length > 0 :
+            for j in range(pred_length):
+                tmp_pred = pred[j]
+                split_result = tmp_pred.split('-')
+                tmp_pinyin = p.get_pinyin(split_result[2], ' ')
+                if split_result[1] != 'value' :
+                    if split_result[1] in select_pos_set :
+                        map_dic, pinyin_set = Example.label_vocab.poi_map_dic, Example.label_vocab.poi_pinyin_set
+                    else :
+                        [map_dic, pinyin_set] = select_others_set[split_result[1]]
+
+                    standard_output = get_standard_output (map_dic, pinyin_set, tmp_pinyin)
+                    modify_pred = split_result[0] + '-' + split_result[1] + '-' + standard_output
+                    if standard_output != split_result[2] :
+                        modify_num += 1
+                    predictions[i][j] = modify_pred
+    print ("modify_num == ", modify_num)                    
+    return  predictions            
+
+def get_standard_output (map_dic, pinyin_set, tmp_pinyin) :
+    if tmp_pinyin in pinyin_set :
+        standard_output = map_dic[tmp_pinyin]
+    else :
+        max_similarity = 0
+        most_similar_pinyin = ''
+        for standard_pinyin in iter(pinyin_set) :
+            similarity = get_pinyin_similarity(standard_pinyin, tmp_pinyin)
+            if similarity > max_similarity :
+                max_similarity = similarity
+                most_similar_pinyin = standard_pinyin
+        if max_similarity == 0 : 
+            standard_output = '无'
+        else :
+            standard_output = map_dic[most_similar_pinyin]
+    return standard_output
+            
+
+def get_pinyin_similarity(standard_pinyin, tmp_pinyin) :
+    standard_set = set (standard_pinyin.split(' '))
+    tmp_set = set (tmp_pinyin.split(' '))
+
+    inter_set = standard_set & tmp_set
+    similarity = len (inter_set) / (len (standard_set) + len (tmp_set) )
+    return similarity
+
+
 
 
 class InputExample(object):
@@ -42,7 +106,7 @@ class InputFeatures(object):
 
 class SpeechProcessor:
     def get_train_examples(self, data_dir):
-        return self.read_json(os.path.join(data_dir, "augmented_train_with_ontology.json"), "train")
+        return self.read_json(os.path.join(data_dir, "train.json"), "train")
     def get_dev_examples(self, data_dir):
         return self.read_json(os.path.join(data_dir, "development.json"), "dev")
     def get_test_examples(self, data_dir):
@@ -73,13 +137,13 @@ class SpeechProcessor:
                 examples.append(InputExample(guid=guid, text_a=text_a, text_b=None, labels=tags))
                 index += 1
                 labels.append(label)
-                # if set_type == 'train':
-                #     raw_text, tags, label = self.parse_utt(utt, set_type, 'manual')
-                #     guid = '%s-%s'%(set_type, index)
-                #     text_a = raw_text
-                #     examples.append(InputExample(guid=guid, text_a=text_a, text_b=None, labels=tags))
-                #     index += 1
-                #     labels.append(label)
+                if set_type == 'train':
+                    raw_text, tags, label = self.parse_utt(utt, set_type, 'manual')
+                    guid = '%s-%s'%(set_type, index)
+                    text_a = raw_text
+                    examples.append(InputExample(guid=guid, text_a=text_a, text_b=None, labels=tags))
+                    index += 1
+                    labels.append(label)
         return examples, labels
     def parse_utt(self, utt: dict, set_type, text_type):
         if set_type == 'train' and text_type == 'asr':
@@ -195,25 +259,20 @@ class FocalLoss(nn.CrossEntropyLoss):
 class BertForNer(nn.Module):
     def __init__(self, model_type, cache_dir, num_labels):
         super(BertForNer,self).__init__()
-        self.bert = AutoModelForTokenClassification.from_pretrained(model_type, cache_dir = cache_dir, num_labels = num_labels, output_hidden_states = True, return_dict=True, classifier_dropout = 0.1)
-        self.bert = AutoModel.from_pretrained(model_type, cache_dir = cache_dir, return_dict = True)
-        self.dropout = nn.Dropout(0.1)
-        self.classifier = nn.Linear(768, num_labels)
-        # self.mlp = nn.Linear(768, 256)
-        self.loss = nn.CrossEntropyLoss(ignore_index=-100)
+        self.bert = AutoModelForTokenClassification.from_pretrained(model_type, cache_dir = cache_dir, num_labels = num_labels,return_dict=True, classifier_dropout = 0.1)
+        # self.bert = AutoModel.from_pretrained(model_type, cache_dir = cache_dir, return_dict = True)
+        # self.dropout = nn.Dropout(0.1)
+        # self.classifier = nn.Linear(768, num_labels)
+        # self.loss = nn.CrossEntropyLoss(ignore_index=-100)
         # self.loss = FocalLoss(gamma=1)
     def forward(self, input_ids, attention_mask, token_type_ids, labels):
-        outputs = self.bert(input_ids = input_ids, attention_mask = attention_mask, token_type_ids = token_type_ids)
-        sequence_output = outputs[0]
-        sequence_output = self.dropout(sequence_output)
-        # sequence_output = self.mlp(sequence_output)
-        final_logits = self.classifier(sequence_output)
-        loss = self.loss(final_logits.view(-1, final_logits.shape[-1]), labels.view(-1))
-        # logits = outputs.logits
-        # final_logits = logits
-        # loss = outputs.loss
-        # final_logits = self.classifier(logits)
+        outputs = self.bert(input_ids = input_ids, attention_mask = attention_mask, token_type_ids = token_type_ids, labels=labels)
+        # sequence_output = outputs[0]
+        # sequence_output = self.dropout(sequence_output)
+        # final_logits = self.classifier(sequence_output)
         # loss = self.loss(final_logits.view(-1, final_logits.shape[-1]), labels.view(-1))
+        final_logits = outputs.logits
+        loss = outputs.loss
         return final_logits, loss
 def main():
     parser = argparse.ArgumentParser()
@@ -453,26 +512,45 @@ def main():
                             pred_label.append(label_list[pred])
                         sub_input_ids = input_ids[i]
                         sub_tokens = tokenizer.convert_ids_to_tokens(sub_input_ids)
-                        sub_value = ""
-                        sub_slot = ""
-                        tmp_prediction = []
+                        idx_buff, tag_buff, pred_tuple = [], [], []
                         for ii, label in enumerate(pred_label):
-                            if label.startswith('B'):
-                                if sub_input_ids[ii] != 101 and sub_input_ids[ii] != 0 and sub_input_ids[ii]!=102:
-                                    sub_value = sub_tokens[ii]
-                                    sub_slot = label[2:]
-                            elif label.startswith('I'):
-                                if sub_input_ids[ii] != 101 and sub_input_ids[ii] != 0 and sub_input_ids[ii]!=102:
-                                    sub_value += sub_tokens[ii]
-                            elif label.startswith('O') and sub_value!="" and sub_slot!="":
-                                tmp_prediction.append("%s-%s"%(sub_slot, sub_value))
-                                sub_value = ""
-                                sub_slot = ""
-                        all_predictions.append(tmp_prediction)
+                            if sub_input_ids[ii] == 101:
+                                continue
+                            if sub_input_ids[ii] == 102:
+                                break
+                            if (label == 'O' or label.startswith('B')) and len(tag_buff) > 0:
+                                slot = '-'.join(tag_buff[0].split('-')[1:])
+                                value = ''.join([sub_tokens[j] for j in idx_buff])
+                                idx_buff, tag_buff = [], []
+                                pred_tuple.append(f'{slot}-{value}')
+                                if label.startswith('B'):
+                                    idx_buff.append(ii)
+                                    tag_buff.append(label)
+                            elif label.startswith('I') or label.startswith('B'):
+                                idx_buff.append(ii)
+                                tag_buff.append(label)
+                        if len(tag_buff) > 0:
+                            slot = '-'.join(tag_buff[0].split('-')[1:])
+                            value = ''.join([sub_tokens[j] for j in idx_buff])
+                            pred_tuple.append(f'{slot}-{value}')
+                        
+                            # if label.startswith('B'):
+                            #     if sub_input_ids[ii] != 101 and sub_input_ids[ii] != 0 and sub_input_ids[ii]!=102:
+                            #         sub_value = sub_tokens[ii]
+                            #         sub_slot = label[2:]
+                            # elif label.startswith('I'):
+                            #     if sub_input_ids[ii] != 101 and sub_input_ids[ii] != 0 and sub_input_ids[ii]!=102:
+                            #         sub_value += sub_tokens[ii]
+                            # elif label.startswith('O') and sub_value!="" and sub_slot!="":
+                            #     tmp_prediction.append("%s-%s"%(sub_slot, sub_value))
+                            #     sub_value = ""
+                            #     sub_slot = ""
+                        all_predictions.append(pred_tuple)
                         
                     num_eval_examples += input_ids.size(0)
                     eval_steps += 1
                 evaluator = Evaluator()
+                all_predictions = anti_noise_prediction(all_predictions)
                 metrics = evaluator.acc(all_predictions, all_labels)
                 eval_acc, eval_f1 = metrics['acc'], metrics['fscore']
                 loss = train_loss / train_steps

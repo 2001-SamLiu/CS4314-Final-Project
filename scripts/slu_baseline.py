@@ -105,7 +105,6 @@ def anti_noise_prediction(predictions):
                     modify_pred = split_result[0] + '-' + split_result[1] + '-' + standard_output
                     if standard_output != split_result[2] :
                         modify_num += 1
-                        print ("standard_output = ", standard_output, " split_result[2] = ", split_result[2])
                     predictions[i][j] = modify_pred
     print ("modify_num == ", modify_num)                    
     return  predictions            

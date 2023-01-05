@@ -72,9 +72,9 @@ class LabelVocab():
         """
             RECALL THE MAP_DICT AND PINYIN_SET FOR THE DENOISING 
         """
-        self.poi_map_dic, self.poi_pinyin_set = self.load_pinyin_from_file("./data/lexicon/poi_name.txt")  
-        self.opera_map_dic, self.opera_pinyin_set = self.load_pinyin_from_file("./data/lexicon/operation_verb.txt")
-        self.ordinal_map_dic, self.ordinal_pinyin_set = self.load_pinyin_from_file("./data/lexicon/ordinal_number.txt")
+        self.poi_map_dic, self.poi_pinyin_set = self.load_pinyin_from_file("../data/lexicon/poi_name.txt")  
+        self.opera_map_dic, self.opera_pinyin_set = self.load_pinyin_from_file("../data/lexicon/operation_verb.txt")
+        self.ordinal_map_dic, self.ordinal_pinyin_set = self.load_pinyin_from_file("../data/lexicon/ordinal_number.txt")
 
         self.request_map_dic, self.request_pinyin_set = self.load_pinyin_from_slots("请求类型")
         self.travel_map_dic, self.travel_pinyin_set = self.load_pinyin_from_slots("出行方式")

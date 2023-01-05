@@ -4,6 +4,12 @@ import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 import torch.nn.functional as F
 
+class BERT_NER(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+
+
+
 class SLUTagging(nn.Module):
 
     def __init__(self, config):
@@ -93,7 +99,6 @@ class TaggingFNNDecoder(nn.Module):
         super(TaggingFNNDecoder, self).__init__()
         self.num_tags = num_tags
         self.output_layer = nn.Linear(input_size, num_tags)
-        self.loss_fct = FocalLoss(gamma=2,ignore_index=pad_id)
         self.loss_fct = nn.CrossEntropyLoss(ignore_index=pad_id)
 
     def forward(self, hiddens, mask, labels=None):

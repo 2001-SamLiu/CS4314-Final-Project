@@ -3,6 +3,7 @@
         {
             "utt_id": 1,
             "asr_1best": "取消导航",
+            "semantic":[],
             "pred": []
         }
     ],

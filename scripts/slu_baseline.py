@@ -58,7 +58,7 @@ def decode(choice):
     assert choice in ['train', 'test']
     model.eval()
     dataset = train_dataset if choice == 'train' else dev_dataset
-    predictions, labels = [], []
+    asrbest1,predictions, labels = [], [], []
     total=[]
     total_loss, count = 0, 0
     with torch.no_grad():
@@ -69,25 +69,32 @@ def decode(choice):
             for j in range(len(current_batch)):
                 if any([l.split('-')[-1] not in current_batch.utt[j] for l in pred[j]]):
                     print(current_batch.utt[j], pred[j], label[j])
+                # print(current_batch.utt[j], anti_noise_prediction(pred[j]), label[j])
+            # print("pred:",pred)
+            # print('\n')
+            # print("label:",label)
+            # print("asrbest:",current_batch.utt)
+            asrbest1.extend(current_batch.utt)
             predictions.extend(pred)
             labels.extend(label)
             total_loss += loss
             count += 1
         predictions = anti_noise_prediction(predictions)
+        print(len(labels))
         metrics = Example.evaluator.acc(predictions, labels)
         if choice=='test':
-            for j in range(len(current_batch)):
+            for i in range(len(asrbest1)):
                 tmp=dict()
                 single=[]
                 tmp['utt_id']=1
-                tmp['asr_1best'] =current_batch.utt[j]
+                tmp['asr_1best'] =asrbest1[i]
                 semantic_tmp=[]
-                for k in range(len(labels[j])):
-                    semantic_tmp.append(labels[j][k].split('-'))
+                for k in range(len(labels[i])):
+                    semantic_tmp.append(labels[i][k].split('-'))
                 tmp['semantic']=semantic_tmp
                 predict_tmp=[]
-                for k in range(len(predictions[j])):
-                    predict_tmp.append(predictions[j][k].split('-'))
+                for k in range(len(predictions[i])):
+                    predict_tmp.append(predictions[i][k].split('-'))
                 tmp['pred']=predict_tmp
                 single.append(tmp)
                 total.append(single)

@@ -1,5 +1,6 @@
 #coding=utf8
 import os, json
+from xpinyin import Pinyin
 PAD = '<pad>'
 UNK = '<unk>'
 BOS = '<s>'
@@ -23,7 +24,7 @@ class Vocab():
             self.from_train(filepath, min_freq=min_freq)
 
     def from_train(self, filepath, min_freq=1):
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, 'r',encoding='utf-8') as f:
             trains = json.load(f)
         word_freq = {}
         for data in trains:
@@ -59,12 +60,30 @@ class LabelVocab():
         self.from_filepath(root)
 
     def from_filepath(self, root):
-        ontology = json.load(open(os.path.join(root, 'ontology.json'), 'r', encoding='utf-8'))
-        acts = ontology['acts']
-        slots = ontology['slots']
+        ontology = json.load(open(os.path.join(root, 'ontology.json'), 'r',encoding='utf-8'))
+        self.acts = ontology['acts']
+        self.slots = ontology['slots']
+        p = Pinyin()
 
-        for act in acts:
-            for slot in slots:
+        # print ("acts = ", self.acts)
+        # print ("slots = ", self.slots)
+        # print ("len(acts) = ", len(self.acts))
+        # print ("len(slots) = ", len(self.slots))
+        """
+            RECALL THE MAP_DICT AND PINYIN_SET FOR THE DENOISING 
+        """
+        self.poi_map_dic, self.poi_pinyin_set = self.load_pinyin_from_file("./data/lexicon/poi_name.txt")  
+        self.opera_map_dic, self.opera_pinyin_set = self.load_pinyin_from_file("./data/lexicon/operation_verb.txt")
+        self.ordinal_map_dic, self.ordinal_pinyin_set = self.load_pinyin_from_file("./data/lexicon/ordinal_number.txt")
+
+        self.request_map_dic, self.request_pinyin_set = self.load_pinyin_from_slots("请求类型")
+        self.travel_map_dic, self.travel_pinyin_set = self.load_pinyin_from_slots("出行方式")
+        self.route_map_dic, self.route_pinyin_set = self.load_pinyin_from_slots("路线偏好")
+        self.object_map_dic, self.object_pinyin_set = self.load_pinyin_from_slots("对象")
+        self.page_map_dic, self.page_pinyin_set = self.load_pinyin_from_slots("页码")
+
+        for act in self.acts:
+            for slot in self.slots:
                 for bi in ['B', 'I']:
                     idx = len(self.tag2idx)
                     tag = f'{bi}-{act}-{slot}'
@@ -75,6 +94,39 @@ class LabelVocab():
 
     def convert_idx_to_tag(self, idx):
         return self.idx2tag[idx]
+
+    def load_pinyin_from_slots(self, slot_name):
+        '''
+            LOAD THE PINYIN FROM THE 
+        
+        '''
+        p = Pinyin()
+        map_dic = {}
+        pinyin_set = set()
+        slot_length = len(self.slots[slot_name])
+
+        for i in range(slot_length):
+            tmp_value = self.slots[slot_name][i]
+            tmp_pinyin = p.get_pinyin(tmp_value, ' ')
+            pinyin_set.add (tmp_pinyin)
+            map_dic[tmp_pinyin] = tmp_value 
+        
+        return map_dic, pinyin_set
+
+    def load_pinyin_from_file (self, file_name):
+        p = Pinyin()
+        map_dic = {}
+        pinyin_set = set()
+
+        f = open(file_name,"r",encoding='utf-8')
+        lines = f.readlines()
+        for line in lines :
+            line = line.replace("\n", "")
+            tmp_pinyin = p.get_pinyin(line, ' ')
+            pinyin_set.add (tmp_pinyin)
+            map_dic[tmp_pinyin] = line
+    
+        return map_dic, pinyin_set
 
     @property
     def num_tags(self):

@@ -1,7 +1,9 @@
 #coding=utf8
+
 import sys, os, time, gc
 from xpinyin import Pinyin
 from torch.optim import Adam
+import json
 
 install_path = os.path.abspath(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(install_path)
@@ -40,7 +42,7 @@ args.tag_pad_idx = Example.label_vocab.convert_tag_to_idx(PAD)
 
 model = SLUTagging(args).to(device)
 if args.testing:
-    model_info = torch.load('model.bin')
+    model_info = torch.load('model.bin',map_location='cpu')
     model.load_state_dict(model_info['model'])
 Example.word2vec.load_embeddings(model.word_embed, Example.word_vocab, device=device)
 
@@ -53,10 +55,11 @@ def set_optimizer(model, args):
 
 
 def decode(choice):
-    assert choice in ['train', 'dev']
+    assert choice in ['train', 'test']
     model.eval()
     dataset = train_dataset if choice == 'train' else dev_dataset
     predictions, labels = [], []
+    total=[]
     total_loss, count = 0, 0
     with torch.no_grad():
         for i in range(0, len(dataset), args.batch_size):
@@ -72,8 +75,27 @@ def decode(choice):
             count += 1
         predictions = anti_noise_prediction(predictions)
         metrics = Example.evaluator.acc(predictions, labels)
+        if choice=='test':
+            for j in range(len(current_batch)):
+                tmp=dict()
+                single=[]
+                tmp['utt_id']=1
+                tmp['asr_1best'] =current_batch.utt[j]
+                semantic_tmp=[]
+                for k in range(len(labels[j])):
+                    semantic_tmp.append(labels[j][k].split('-'))
+                tmp['semantic']=semantic_tmp
+                predict_tmp=[]
+                for k in range(len(predictions[j])):
+                    predict_tmp.append(predictions[j][k].split('-'))
+                tmp['pred']=predict_tmp
+                single.append(tmp)
+                total.append(single)
     torch.cuda.empty_cache()
     gc.collect()
+    json_str=json.dumps(total,indent=4,ensure_ascii=False)
+    with open('test.json','a',encoding='utf-8') as f:
+        f.write(json_str)
     return metrics, total_loss / count
 
 def anti_noise_prediction(predictions):

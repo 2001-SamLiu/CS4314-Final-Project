@@ -9,12 +9,12 @@ import torch
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, TensorDataset
 import sklearn.metrics as mtc
 from tqdm.auto import tqdm
-from transformers import AutoTokenizer, AutoModelForTokenClassification
+from transformers import AutoTokenizer, AutoModelForTokenClassification, AutoModel
 from transformers import AdamW, SchedulerType, get_scheduler
 import json
 import sys
-
-
+import torch.nn as nn
+import torch.nn.functional as F
 install_path = os.path.abspath(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(install_path)
 from utils.evaluator import Evaluator
@@ -42,7 +42,7 @@ class InputFeatures(object):
 
 class SpeechProcessor:
     def get_train_examples(self, data_dir):
-        return self.read_json(os.path.join(data_dir, "train.json"), "train")
+        return self.read_json(os.path.join(data_dir, "augmented_train_with_ontology.json"), "train")
     def get_dev_examples(self, data_dir):
         return self.read_json(os.path.join(data_dir, "development.json"), "dev")
     def get_test_examples(self, data_dir):
@@ -67,18 +67,27 @@ class SpeechProcessor:
         index = 0
         for data in datas:
             for utt in data:
-                raw_text, tags, label = self.parse_utt(utt, set_type)
+                raw_text, tags, label = self.parse_utt(utt, set_type, 'asr')
                 guid = '%s-%s'%(set_type, index)
                 text_a = raw_text
                 examples.append(InputExample(guid=guid, text_a=text_a, text_b=None, labels=tags))
                 index += 1
                 labels.append(label)
+                # if set_type == 'train':
+                #     raw_text, tags, label = self.parse_utt(utt, set_type, 'manual')
+                #     guid = '%s-%s'%(set_type, index)
+                #     text_a = raw_text
+                #     examples.append(InputExample(guid=guid, text_a=text_a, text_b=None, labels=tags))
+                #     index += 1
+                #     labels.append(label)
         return examples, labels
-    def parse_utt(self, utt: dict, set_type):
-        if set_type == 'train':
-            raw_text = utt['asr_1best']
+    def parse_utt(self, utt: dict, set_type, text_type):
+        if set_type == 'train' and text_type == 'asr':
+            raw_text = utt['asr_1best'].lower()
+        elif set_type == 'train' and text_type == 'manual':
+            raw_text = utt['manual_transcript'].lower()
         else:
-            raw_text = utt['asr_1best']
+            raw_text = utt['asr_1best'].lower()
         slots = {}
         if 'semantic' in utt.keys():
             for label in utt['semantic']:
@@ -161,7 +170,51 @@ class Metrics:
     def f1(predictions, labels, average="micro"):
         return mtc.f1_score(labels, predictions, average=average)
 
+class FocalLoss(nn.CrossEntropyLoss):
+    ''' Focal loss for classification tasks on imbalanced datasets '''
+    def __init__(self, gamma, alpha=None, ignore_index=-100, reduction='mean'):
+        super().__init__(weight=alpha, ignore_index=ignore_index, reduction='none')
 
+        self.reduction = reduction
+
+        self.gamma = gamma
+
+    def forward(self, input_, target):
+        cross_entropy = super().forward(input_, target)
+        # Temporarily mask out ignore index to '0' for valid gather-indices input.
+        # This won't contribute final loss as the cross_entropy contribution
+        # for these would be zero.
+
+        target = target * (target != self.ignore_index).long()
+
+        input_prob = torch.gather(F.softmax(input_, 1), 1, target.unsqueeze(1))
+
+        loss = torch.pow(1 - input_prob, self.gamma) * cross_entropy
+
+        return torch.mean(loss) if self.reduction == 'mean' else torch.sum(loss) if self.reduction == 'sum' else loss
+class BertForNer(nn.Module):
+    def __init__(self, model_type, cache_dir, num_labels):
+        super(BertForNer,self).__init__()
+        self.bert = AutoModelForTokenClassification.from_pretrained(model_type, cache_dir = cache_dir, num_labels = num_labels, output_hidden_states = True, return_dict=True, classifier_dropout = 0.1)
+        self.bert = AutoModel.from_pretrained(model_type, cache_dir = cache_dir, return_dict = True)
+        self.dropout = nn.Dropout(0.1)
+        self.classifier = nn.Linear(768, num_labels)
+        # self.mlp = nn.Linear(768, 256)
+        self.loss = nn.CrossEntropyLoss(ignore_index=-100)
+        # self.loss = FocalLoss(gamma=1)
+    def forward(self, input_ids, attention_mask, token_type_ids, labels):
+        outputs = self.bert(input_ids = input_ids, attention_mask = attention_mask, token_type_ids = token_type_ids)
+        sequence_output = outputs[0]
+        sequence_output = self.dropout(sequence_output)
+        # sequence_output = self.mlp(sequence_output)
+        final_logits = self.classifier(sequence_output)
+        loss = self.loss(final_logits.view(-1, final_logits.shape[-1]), labels.view(-1))
+        # logits = outputs.logits
+        # final_logits = logits
+        # loss = outputs.loss
+        # final_logits = self.classifier(logits)
+        # loss = self.loss(final_logits.view(-1, final_logits.shape[-1]), labels.view(-1))
+        return final_logits, loss
 def main():
     parser = argparse.ArgumentParser()
 
@@ -190,13 +243,13 @@ def main():
                         help="A slow tokenizer will be used if passed.")
     parser.add_argument("--do_lower_case", action="store_true",
                         help="Set this flag if you are using an uncased model.")
-    parser.add_argument("--max_seq_length", type=int, default=64,
+    parser.add_argument("--max_seq_length", type=int, default=32,
                         help="Maximum total input sequence length after word-piece tokenization.")
     parser.add_argument("--train_batch_size", type=int, default=32,
                         help="Total batch size for training.")
     parser.add_argument("--eval_batch_size", type=int, default=64,
                         help="Total batch size for evaluation.")
-    parser.add_argument("--learning_rate", type=float, default=5e-5,
+    parser.add_argument("--learning_rate", type=float, default=3e-5,
                         help="Initial learning rate for Adam.")
     parser.add_argument("--num_train_epochs", type=float, default=3.0,
                         help="Total number of training epochs to perform.")
@@ -206,7 +259,7 @@ def main():
                         help="Scheduler type for learning rate warmup.")
     parser.add_argument("--warmup_proportion", type=float, default=0.1,
                         help="Proportion of training to perform learning rate warmup for.")
-    parser.add_argument("--weight_decay", type=float, default=0.,
+    parser.add_argument("--weight_decay", type=float, default=0.1,
                         help="L2 weight decay for training.")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1,
                         help="Number of updates steps to accumulate before performing a backward pass.")
@@ -276,15 +329,9 @@ def main():
             args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
 
         if args.load_model_path:
-            model = AutoModelForTokenClassification.from_pretrained(args.load_model_path,
-                                                                    num_labels=num_labels,
-                                                                    return_dict=True,
-                                                                    cache_dir=cache_dir)
+            model = BertForNer(model_type=args.load_model_path, cache_dir=cache_dir, num_labels=num_labels)                                                        
         else:
-            model = AutoModelForTokenClassification.from_pretrained(args.model_type,
-                                                                    num_labels=num_labels,
-                                                                    return_dict=True,
-                                                                    cache_dir=cache_dir)
+            model = BertForNer(model_type=args.model_type, cache_dir=cache_dir, num_labels=num_labels)
         model.to(device)
         if n_gpu > 1:
             model = torch.nn.DataParallel(model)
@@ -340,12 +387,15 @@ def main():
             for step, batch in enumerate(train_dataloader):
                 batch = tuple(t.to(device) for t in batch)
                 input_ids, input_mask, segment_ids, label_ids = batch
-                outputs = model(input_ids=input_ids,
+                # outputs = model(input_ids=input_ids,
+                #                 attention_mask=input_mask,
+                #                 token_type_ids=segment_ids,
+                #                 labels=label_ids)
+                # loss = outputs.loss
+                logits, loss = model(input_ids=input_ids,
                                 attention_mask=input_mask,
                                 token_type_ids=segment_ids,
                                 labels=label_ids)
-                loss = outputs.loss
-
                 if n_gpu > 1:
                     loss = loss.mean()
                 if args.gradient_accumulation_steps > 1:
@@ -382,12 +432,16 @@ def main():
                     batch = tuple(t.to(device) for t in batch)
                     input_ids, input_mask, segment_ids, label_ids = batch
                     with torch.no_grad():
-                        outputs = model(input_ids=input_ids,
-                                        attention_mask=input_mask,
-                                        token_type_ids=segment_ids,
-                                        labels=label_ids)
-                        tmp_eval_loss = outputs.loss
-                        logits = outputs.logits
+                        # outputs = model(input_ids=input_ids,
+                        #                 attention_mask=input_mask,
+                        #                 token_type_ids=segment_ids,
+                        #                 labels=label_ids)
+                        # tmp_eval_loss = outputs.loss
+                        # logits = outputs.logits
+                        logits, tmp_eval_loss = model(input_ids=input_ids,
+                                attention_mask=input_mask,
+                                token_type_ids=segment_ids,
+                                labels=label_ids)
 
                     logits = logits.detach().cpu().numpy()
                     label_ids = label_ids.to("cpu").numpy()
@@ -415,28 +469,19 @@ def main():
                                 sub_value = ""
                                 sub_slot = ""
                         all_predictions.append(tmp_prediction)
-
-                
-                    # tmp_predictions = np.argmax(logits, axis=2).reshape(-1).tolist()
-                    # tmp_labels = label_ids.reshape(-1).tolist()
-                    # all_predictions.extend([p for p, l in zip(tmp_predictions, tmp_labels) if l != -100])
-                    # all_labels.extend([l for l in tmp_labels if l != -100])
+                        
                     num_eval_examples += input_ids.size(0)
                     eval_steps += 1
-                # print(all_predictions)
                 evaluator = Evaluator()
                 metrics = evaluator.acc(all_predictions, all_labels)
                 eval_acc, eval_f1 = metrics['acc'], metrics['fscore']
                 loss = train_loss / train_steps
                 eval_loss = eval_loss / eval_steps
-                # eval_acc = mtc.f1_score(all_labels,
-                #                         all_predictions,
-                #                         labels=list(range(1, num_labels)),
-                #                         average="micro") * 100
                 model_to_save = model.module if hasattr(model, "module") else model
                 output_model_file = os.path.join(args.output_dir, "best_pytorch_model_for_{}.bin".format(task_name))
                 if eval_acc > best_acc:
                     torch.save(model_to_save.state_dict(), output_model_file)
+                    best_acc = eval_acc
                 result = {
                     "global_step": global_step,
                     "loss": loss,

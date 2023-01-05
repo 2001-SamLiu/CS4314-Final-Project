@@ -19,12 +19,14 @@ class Evaluator():
     @staticmethod
     def fscore(predictions, labels):
         TP, TP_FP, TP_FN = 0, 0, 0
+        assert(len(predictions)==len(labels))
         for i in range(len(predictions)):
             pred = set(predictions[i])
             label = set(labels[i])
             TP += len(pred & label)
             TP_FP += len(pred)
             TP_FN += len(label)
+        print(TP, TP_FP, TP_FN)
         if TP_FP == 0:
             precision = 0
         else:

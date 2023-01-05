@@ -2,7 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
-
+import torch.nn.functional as F
 
 class SLUTagging(nn.Module):
 
@@ -65,13 +65,35 @@ class SLUTagging(nn.Module):
             predictions.append(pred_tuple)
         return predictions, labels, loss.cpu().item()
 
+class FocalLoss(nn.CrossEntropyLoss):
+    ''' Focal loss for classification tasks on imbalanced datasets '''
+    def __init__(self, gamma, alpha=None, ignore_index=-100, reduction='mean'):
+        super().__init__(weight=alpha, ignore_index=ignore_index, reduction='none')
 
+        self.reduction = reduction
+
+        self.gamma = gamma
+
+    def forward(self, input_, target):
+        cross_entropy = super().forward(input_, target)
+        # Temporarily mask out ignore index to '0' for valid gather-indices input.
+        # This won't contribute final loss as the cross_entropy contribution
+        # for these would be zero.
+
+        target = target * (target != self.ignore_index).long()
+
+        input_prob = torch.gather(F.softmax(input_, 1), 1, target.unsqueeze(1))
+
+        loss = torch.pow(1 - input_prob, self.gamma) * cross_entropy
+
+        return torch.mean(loss) if self.reduction == 'mean' else torch.sum(loss) if self.reduction == 'sum' else loss
 class TaggingFNNDecoder(nn.Module):
 
     def __init__(self, input_size, num_tags, pad_id):
         super(TaggingFNNDecoder, self).__init__()
         self.num_tags = num_tags
         self.output_layer = nn.Linear(input_size, num_tags)
+        self.loss_fct = FocalLoss(gamma=2,ignore_index=pad_id)
         self.loss_fct = nn.CrossEntropyLoss(ignore_index=pad_id)
 
     def forward(self, hiddens, mask, labels=None):

@@ -15,6 +15,7 @@ import json
 import sys
 import torch.nn as nn
 import torch.nn.functional as F
+import copy
 install_path = os.path.abspath(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(install_path)
 
@@ -110,7 +111,7 @@ class SpeechProcessor:
     def get_dev_examples(self, data_dir):
         return self.read_json(os.path.join(data_dir, "development.json"), "dev")
     def get_test_examples(self, data_dir):
-        return self.read_json(os.path.join(data_dir, "test_unlabelled.json"), "test")
+        return self.read_json(data_dir, "test")
     def get_labels(self):
         return ["O", "B-inform-poi名称", "B-inform-poi修饰", "B-inform-poi目标", "B-inform-起点名称", "B-inform-起点修饰",
         "B-inform-起点目标", "B-inform-终点名称", "B-inform-终点修饰", "B-inform-终点目标", "B-inform-途经点名称", "B-inform-请求类型",
@@ -257,7 +258,7 @@ class FocalLoss(nn.CrossEntropyLoss):
 
         return torch.mean(loss) if self.reduction == 'mean' else torch.sum(loss) if self.reduction == 'sum' else loss
 class BertForNer(nn.Module):
-    def __init__(self, model_type, cache_dir, num_labels):
+    def __init__(self, model_type, cache_dir, num_labels,):
         super(BertForNer,self).__init__()
         self.bert = AutoModelForTokenClassification.from_pretrained(model_type, cache_dir = cache_dir, num_labels = num_labels,return_dict=True, classifier_dropout = 0.1)
         # self.bert = AutoModel.from_pretrained(model_type, cache_dir = cache_dir, return_dict = True)
@@ -290,12 +291,13 @@ def main():
                         help="Directory to store the pre-trained language models downloaded from s3.")
     parser.add_argument("--output_dir", type=str, default="model/",
                         help="Directory to output predictions and checkpoints.")
-
+    parser.add_argument("--test_dir", type=str, default="../data/development.json")
     # Training config.
     parser.add_argument("--do_train", action="store_true",
                         help="Whether to run training.")
     parser.add_argument("--do_eval", action="store_true",
                         help="Whether to evaluate on the dev set.")
+    parser.add_argument("--do_test", action='store_true')
     parser.add_argument("--eval_on", type=str, default="dev",
                         help="Whether to evaluate on the test set.")
     parser.add_argument("--use_slow_tokenizer", action="store_true",
@@ -368,6 +370,83 @@ def main():
                                               cache_dir=cache_dir,
                                               use_fast=not args.use_slow_tokenizer,
                                               add_prefix_space=True)
+    
+    if args.do_test:
+        test_examples, test_labels = processor.get_test_examples(args.test_dir)
+        test_features = convert_examples_to_features(test_examples, label_list, args.max_seq_length, tokenizer)
+
+        all_input_ids = torch.tensor([f.input_ids for f in test_features], dtype=torch.long)
+        all_input_mask = torch.tensor([f.input_mask for f in test_features], dtype=torch.long)
+        all_segment_ids = torch.tensor([f.segment_ids for f in test_features], dtype=torch.long)
+        all_label_ids = torch.tensor([f.label_ids for f in test_features], dtype=torch.long)
+
+        test_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids)
+        test_sampler = SequentialSampler(test_data)
+        test_dataloader = DataLoader(test_data, sampler=test_sampler, batch_size=args.eval_batch_size)
+        if not args.load_model_path:
+            print("You need to specify model path when testing")
+            return
+        model = BertForNer(model_type=args.model_type, cache_dir=cache_dir, num_labels=num_labels)
+        model.load_state_dict(torch.load(args.load_model_path))
+        model.to(device)
+        model.eval()
+        all_predictions = []
+        for batch in tqdm(test_dataloader, desc="Test"):
+            batch = tuple(t.to(device) for t in batch)
+            input_ids, input_mask, segment_ids, label_ids = batch
+            with torch.no_grad():
+                logits, tmp_test_loss = model(input_ids = input_ids, attention_mask = input_mask,
+                                                token_type_ids = segment_ids, labels = label_ids)
+            logits = logits.detach().cpu().numpy()
+            tmp_predictions = np.argmax(logits, axis=2).tolist()
+            for i, sub_pred in enumerate(tmp_predictions):
+                    pred_label = []
+                    for pred in sub_pred:
+                        pred_label.append(label_list[pred])
+                    sub_input_ids = input_ids[i]
+                    sub_tokens = tokenizer.convert_ids_to_tokens(sub_input_ids)
+                    idx_buff, tag_buff, pred_tuple = [], [], []
+                    for ii, label in enumerate(pred_label):
+                        if sub_input_ids[ii] == 101:
+                            continue
+                        if sub_input_ids[ii] == 102:
+                            break
+                        if (label == 'O' or label.startswith('B')) and len(tag_buff) > 0:
+                            slot = '-'.join(tag_buff[0].split('-')[1:])
+                            value = ''.join([sub_tokens[j] for j in idx_buff])
+                            idx_buff, tag_buff = [], []
+                            pred_tuple.append(f'{slot}-{value}')
+                            if label.startswith('B'):
+                                idx_buff.append(ii)
+                                tag_buff.append(label)
+                        elif label.startswith('I') or label.startswith('B'):
+                            idx_buff.append(ii)
+                            tag_buff.append(label)
+                    if len(tag_buff) > 0:
+                        slot = '-'.join(tag_buff[0].split('-')[1:])
+                        value = ''.join([sub_tokens[j] for j in idx_buff])
+                        pred_tuple.append(f'{slot}-{value}')
+                    all_predictions.append(pred_tuple)
+        all_predictions = anti_noise_prediction(all_predictions)
+        # evaluator = Evaluator()
+        # metrics = evaluator.acc(all_predictions, test_labels)
+        # print(metrics['acc'])
+        pred_id = 0
+        test_data = json.load(open(args.test_dir, 'r', encoding='utf-8'))
+        pred_test_data = copy.deepcopy(test_data)
+        for data in pred_test_data:
+            for utt in data:
+                tmp_pred = []
+                for pred in all_predictions[pred_id]:
+                    pred_list = pred.split('-')
+                    tmp_pred.append(pred_list)
+                utt['pred'] = tmp_pred
+                pred_id += 1
+        pred_json = json.dumps(pred_test_data, indent=4, ensure_ascii=False)
+        with open(os.path.join(args.data_dir, "test.json"), 'w', encoding='utf-8') as f:
+            f.write(pred_json)
+        return
+    
     if args.do_train:
         train_examples, train_labels = processor.get_train_examples(os.path.join(args.data_dir))
         train_features = convert_examples_to_features(train_examples, label_list, args.max_seq_length, tokenizer)
@@ -414,10 +493,7 @@ def main():
                                   num_training_steps=args.max_train_steps)
 
         if args.do_eval:
-            if args.eval_on == "dev":
-                eval_examples, dev_labels = processor.get_dev_examples(os.path.join(args.data_dir))
-            else:
-                eval_examples, dev_labels = processor.get_test_examples(os.path.join(args.data_dir))
+            eval_examples, dev_labels = processor.get_dev_examples(os.path.join(args.data_dir))
             eval_features = convert_examples_to_features(eval_examples, label_list, args.max_seq_length, tokenizer)
 
             all_input_ids = torch.tensor([f.input_ids for f in eval_features], dtype=torch.long)

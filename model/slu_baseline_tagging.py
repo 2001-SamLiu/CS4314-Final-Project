@@ -28,7 +28,7 @@ class SLUTagging(nn.Module):
         lengths = batch.lengths
 
         embed = self.word_embed(input_ids)
-        packed_inputs = rnn_utils.pack_padded_sequence(embed, lengths, batch_first=True, enforce_sorted=True)
+        packed_inputs = rnn_utils.pack_padded_sequence(embed, lengths, batch_first=True, enforce_sorted=False)
         packed_rnn_out, h_t_c_t = self.rnn(packed_inputs)  # bsize x seqlen x dim
         rnn_out, unpacked_len = rnn_utils.pad_packed_sequence(packed_rnn_out, batch_first=True)
         hiddens = self.dropout_layer(rnn_out)

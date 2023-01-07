@@ -3,7 +3,7 @@ import torch
 
 
 def from_example_list(args, ex_list, device='cpu', train=True):
-    ex_list = sorted(ex_list, key=lambda x: len(x.input_idx), reverse=True)
+#     ex_list = sorted(ex_list, key=lambda x: len(x.input_idx), reverse=True)
     batch = Batch(ex_list, device)
     pad_idx = args.pad_idx
     tag_pad_idx = args.tag_pad_idx

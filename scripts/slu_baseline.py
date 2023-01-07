@@ -4,6 +4,7 @@ import sys, os, time, gc
 from xpinyin import Pinyin
 from torch.optim import Adam
 import json
+import copy
 
 install_path = os.path.abspath(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(install_path)
@@ -54,12 +55,12 @@ def set_optimizer(model, args):
     return optimizer
 
 
+
 def decode(choice):
     assert choice in ['train', 'test']
     model.eval()
     dataset = train_dataset if choice == 'train' else dev_dataset
-    asrbest1,predictions, labels = [], [], []
-    total=[]
+    predictions, labels = [], []
     total_loss, count = 0, 0
     with torch.no_grad():
         for i in range(0, len(dataset), args.batch_size):
@@ -70,37 +71,27 @@ def decode(choice):
                 if any([l.split('-')[-1] not in current_batch.utt[j] for l in pred[j]]):
                     print(current_batch.utt[j], pred[j], label[j])
                 # print(current_batch.utt[j], anti_noise_prediction(pred[j]), label[j])
-            # print("pred:",pred)
-            # print('\n')
-            # print("label:",label)
-            # print("asrbest:",current_batch.utt)
-            asrbest1.extend(current_batch.utt)
             predictions.extend(pred)
             labels.extend(label)
             total_loss += loss
             count += 1
         predictions = anti_noise_prediction(predictions)
-        print(len(labels))
         metrics = Example.evaluator.acc(predictions, labels)
         if choice=='test':
-            for i in range(len(asrbest1)):
-                tmp=dict()
-                single=[]
-                tmp['utt_id']=1
-                tmp['asr_1best'] =asrbest1[i]
-                semantic_tmp=[]
-                for k in range(len(labels[i])):
-                    semantic_tmp.append(labels[i][k].split('-'))
-                tmp['semantic']=semantic_tmp
-                predict_tmp=[]
-                for k in range(len(predictions[i])):
-                    predict_tmp.append(predictions[i][k].split('-'))
-                tmp['pred']=predict_tmp
-                single.append(tmp)
-                total.append(single)
+            pred_id=0
+            test_data=json.load(open(dev_path,'r',encoding='utf-8'))
+            pred_test_data=copy.deepcopy(test_data)
+            for data in pred_test_data:
+                for utt in data:
+                    tmp_pred=[]
+                    for pred in predictions[pred_id]:
+                        pred_list=pred.split('-')
+                        tmp_pred.append(pred_list)
+                    utt['pred']=tmp_pred
+                    pred_id+=1
     torch.cuda.empty_cache()
     gc.collect()
-    json_str=json.dumps(total,indent=4,ensure_ascii=False)
+    json_str=json.dumps(pred_test_data,indent=4,ensure_ascii=False)
     with open('test.json','a',encoding='utf-8') as f:
         f.write(json_str)
     return metrics, total_loss / count

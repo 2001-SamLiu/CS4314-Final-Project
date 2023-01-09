@@ -26,7 +26,6 @@ class Evaluator():
             TP += len(pred & label)
             TP_FP += len(pred)
             TP_FN += len(label)
-        print(TP, TP_FP, TP_FN)
         if TP_FP == 0:
             precision = 0
         else:

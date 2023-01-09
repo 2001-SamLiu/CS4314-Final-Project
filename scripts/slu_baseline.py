@@ -57,7 +57,7 @@ def set_optimizer(model, args):
 
 
 def decode(choice):
-    assert choice in ['train', 'test']
+    assert choice in ['train', 'test', 'dev']
     model.eval()
     dataset = train_dataset if choice == 'train' else dev_dataset
     predictions, labels = [], []
@@ -75,25 +75,27 @@ def decode(choice):
             labels.extend(label)
             total_loss += loss
             count += 1
-        predictions = anti_noise_prediction(predictions)
         metrics = Example.evaluator.acc(predictions, labels)
         if choice=='test':
+            anti_predictions = anti_noise_prediction(predictions)
             pred_id=0
             test_data=json.load(open(dev_path,'r',encoding='utf-8'))
             pred_test_data=copy.deepcopy(test_data)
             for data in pred_test_data:
                 for utt in data:
                     tmp_pred=[]
-                    for pred in predictions[pred_id]:
+                    for pred in anti_predictions[pred_id]:
                         pred_list=pred.split('-')
                         tmp_pred.append(pred_list)
                     utt['pred']=tmp_pred
                     pred_id+=1
+            metrics = Example.evaluator.acc(anti_predictions, labels)
     torch.cuda.empty_cache()
     gc.collect()
-    json_str=json.dumps(pred_test_data,indent=4,ensure_ascii=False)
-    with open('test.json','a',encoding='utf-8') as f:
-        f.write(json_str)
+    if choice=='test':
+        json_str=json.dumps(pred_test_data,indent=4,ensure_ascii=False)
+        with open('test.json','a',encoding='utf-8') as f:
+            f.write(json_str)
     return metrics, total_loss / count
 
 def anti_noise_prediction(predictions):

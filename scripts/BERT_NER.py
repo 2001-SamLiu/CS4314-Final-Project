@@ -626,7 +626,7 @@ def main():
                     num_eval_examples += input_ids.size(0)
                     eval_steps += 1
                 evaluator = Evaluator()
-                all_predictions = anti_noise_prediction(all_predictions)
+                # all_predictions = anti_noise_prediction(all_predictions)
                 metrics = evaluator.acc(all_predictions, all_labels)
                 eval_acc, eval_f1 = metrics['acc'], metrics['fscore']
                 loss = train_loss / train_steps

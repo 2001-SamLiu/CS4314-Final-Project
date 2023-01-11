@@ -43,6 +43,8 @@
 + jieba
   + 中文分词工具: https://github.com/fxsjy/jieba
 
+## 补充部分README
+
 ### 结果记录
 
 | 模型                      | Dev acc | precision | recall | fscore |
@@ -53,4 +55,48 @@
 | BERT+augmented            | 79.22   | 83.67     | 82.27  | 82.97  |
 | baseline+augmented+pinyin | 80.56   | 86.89     | 83.63  | 85.23  |
 | BERT+augmented+pinyin     | 83.91   | 88.32     | 86.76  | 87.53  |
+
+### BERT_NER.py
+
+运行代码前，安装最新版的transformers模块，否则可能出现报错。
+
+#### 训练
+
+基础的训练代码为
+
+```
+python BERT_NER.py --do_train --do_eval
+```
+
+若要修改训练数据集，则修改**SpeechProcessor**中的**get_train_examples()**函数
+
+其他超参数修改详见代码中的args
+
+#### 测试
+
+测试代码为
+
+```
+python BERT_NER.py --do_test --load_model_path MODEL_PATH --test_dir TEST_FILE
+```
+
+注意此时必须指定模型的路径，而我们的最佳模型存储在scripts/final_model/best_pytorch_model_for_speech.bin处。
+
+### slu_baseline.py
+
+该代码的使用区别和baseline中不大，运行测试代码时添加--testing即可。而目标测试文件和模型路径需要在代码中修改。
+
+### 其他事宜
+
+本次项目中，我们把最终的模型存储在了
+
+```
+scripts/final_model
+```
+
+从test_unlabelled.json生成的test.json放在了
+
+```
+data/
+```
 

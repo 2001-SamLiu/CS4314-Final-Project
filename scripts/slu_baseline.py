@@ -96,7 +96,7 @@ def decode(choice):
     gc.collect()
     if choice=='test':
         json_str=json.dumps(pred_test_data,indent=4,ensure_ascii=False)
-        with open('test.json','w',encoding='utf-8') as f:
+        with open(os.path.join(args.dataroot, 'test.json'),'w',encoding='utf-8') as f:
             f.write(json_str)
     return metrics, total_loss / count
 

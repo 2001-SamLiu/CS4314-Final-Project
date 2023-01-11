@@ -102,30 +102,32 @@ class LabelVocab():
         '''
         p = Pinyin()
         map_dic = {}
-        pinyin_set = set()
+        pinyin_set = []
         slot_length = len(self.slots[slot_name])
 
         for i in range(slot_length):
             tmp_value = self.slots[slot_name][i]
             tmp_pinyin = p.get_pinyin(tmp_value, ' ')
-            pinyin_set.add (tmp_pinyin)
+            pinyin_set.append (tmp_pinyin)
             map_dic[tmp_pinyin] = tmp_value 
         
+        pinyin_set.sort()
         return map_dic, pinyin_set
 
     def load_pinyin_from_file (self, file_name):
         p = Pinyin()
         map_dic = {}
-        pinyin_set = set()
+        pinyin_set = []
 
         f = open(file_name,"r",encoding='utf-8')
         lines = f.readlines()
         for line in lines :
             line = line.replace("\n", "")
             tmp_pinyin = p.get_pinyin(line, ' ')
-            pinyin_set.add (tmp_pinyin)
+            pinyin_set.append (tmp_pinyin)
             map_dic[tmp_pinyin] = line
-    
+
+        pinyin_set.sort()
         return map_dic, pinyin_set
 
     @property

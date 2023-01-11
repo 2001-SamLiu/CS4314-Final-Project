@@ -43,7 +43,7 @@ args.tag_pad_idx = Example.label_vocab.convert_tag_to_idx(PAD)
 
 model = SLUTagging(args).to(device)
 if args.testing:
-    model_info = torch.load('model.bin',map_location='cpu')
+    model_info = torch.load('./final_model/model.bin',map_location='cpu')
     model.load_state_dict(model_info['model'])
 Example.word2vec.load_embeddings(model.word_embed, Example.word_vocab, device=device)
 
@@ -60,6 +60,8 @@ def decode(choice):
     assert choice in ['train', 'test', 'dev']
     model.eval()
     dataset = train_dataset if choice == 'train' else dev_dataset
+    if choice == 'test':
+        dataset = test_dataset
     predictions, labels = [], []
     total_loss, count = 0, 0
     with torch.no_grad():
@@ -79,7 +81,7 @@ def decode(choice):
         if choice=='test':
             anti_predictions = anti_noise_prediction(predictions)
             pred_id=0
-            test_data=json.load(open(dev_path,'r',encoding='utf-8'))
+            test_data=json.load(open(test_path,'r',encoding='utf-8'))
             pred_test_data=copy.deepcopy(test_data)
             for data in pred_test_data:
                 for utt in data:
@@ -94,7 +96,7 @@ def decode(choice):
     gc.collect()
     if choice=='test':
         json_str=json.dumps(pred_test_data,indent=4,ensure_ascii=False)
-        with open('test.json','a',encoding='utf-8') as f:
+        with open('test.json','w',encoding='utf-8') as f:
             f.write(json_str)
     return metrics, total_loss / count
 

@@ -5,7 +5,7 @@
     pip install torch==1.7.1
 
 ### 运行
-    
+
 在根目录下运行
 
     python scripts/slu_baseline.py
@@ -15,6 +15,7 @@
 + `utils/args.py`:定义了所有涉及到的可选参数，如需改动某一参数可以在运行的时候将命令修改成
         
         python scripts/slu_baseline.py --<arg> <value>
+    
     其中，`<arg>`为要修改的参数名，`<value>`为修改后的值
 + `utils/initialization.py`:初始化系统设置，包括设置随机种子和显卡/CPU
 + `utils/vocab.py`:构建编码输入输出的词表
@@ -41,3 +42,15 @@
   + 强力的NLP工具库: https://stanfordnlp.github.io/stanza/
 + jieba
   + 中文分词工具: https://github.com/fxsjy/jieba
+
+### 结果记录
+
+| 模型                      | Dev acc | precision | recall | fscore |
+| ------------------------- | ------- | --------- | ------ | ------ |
+| baseline                  | 71.17   | 79.39     | 71.12  | 75.03  |
+| BERT                      | 78.44   | 82.8      | 81.33  | 82.06  |
+| baseline+augmented        | 78.21   | 81.55     | 80.19  | 80.86  |
+| BERT+augmented            | 79.22   | 83.67     | 82.27  | 82.97  |
+| baseline+augmented+pinyin | 80.56   | 86.89     | 83.63  | 85.23  |
+| BERT+augmented+pinyin     | 83.91   | 88.32     | 86.76  | 87.53  |
+

@@ -428,9 +428,9 @@ def main():
                         pred_tuple.append(f'{slot}-{value}')
                     all_predictions.append(pred_tuple)
         all_predictions = anti_noise_prediction(all_predictions)
-        # evaluator = Evaluator()
-        # metrics = evaluator.acc(all_predictions, test_labels)
-        # print(metrics['acc'])
+        evaluator = Evaluator()
+        metrics = evaluator.acc(all_predictions, test_labels)
+        print(metrics['acc'], metrics['fscore']['precision'], metrics['fscore']['recall'], metrics['fscore']['fscore'])
         pred_id = 0
         test_data = json.load(open(args.test_dir, 'r', encoding='utf-8'))
         pred_test_data = copy.deepcopy(test_data)

@@ -1,0 +1,6 @@
+Epoch 0: global step = 160 | loss = 1.225 | eval score = 76.65 | eval acc = 0.535 | Dev fscore(p/r/f): (79.03/80.19/79.61) 
+Epoch 1: global step = 320 | loss = 0.392 | eval score = 78.10 | eval acc = 0.413 | Dev fscore(p/r/f): (81.80/80.60/81.20) 
+Epoch 2: global step = 480 | loss = 0.288 | eval score = 78.44 | eval acc = 0.450 | Dev fscore(p/r/f): (82.80/81.33/82.06) 
+Epoch 0: global step = 320 | loss = 0.874 | eval score = 76.87 | eval acc = 0.452 | Dev fscore(p/r/f): (80.32/79.56/79.94) 
+Epoch 1: global step = 640 | loss = 0.237 | eval score = 78.55 | eval acc = 0.454 | Dev fscore(p/r/f): (82.88/81.75/82.31) 
+Epoch 2: global step = 960 | loss = 0.170 | eval score = 79.22 | eval acc = 0.442 | Dev fscore(p/r/f): (83.67/82.27/82.97) 

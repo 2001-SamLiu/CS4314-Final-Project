@@ -67,7 +67,7 @@ def get_standard_output (map_dic, pinyin_set, tmp_pinyin) :
     else :
         max_similarity = 0
         most_similar_pinyin = ''
-        for standard_pinyin in iter(pinyin_set) :
+        for standard_pinyin in pinyin_set :
             similarity = get_pinyin_similarity(standard_pinyin, tmp_pinyin)
             if similarity > max_similarity :
                 max_similarity = similarity
